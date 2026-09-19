@@ -113,71 +113,6 @@ Word_Game/
 
 ---
 
-## 🚀 Quick Start (Local Development)
-
-### Prerequisites
-- **Node.js** 18+ installed
-- **npm** 9+
-
-### 1. Clone the repository
-```bash
-git clone <YOUR_GITHUB_REPO_URL>
-cd Word_Game
-```
-
-### 2. Start the Backend (Port 3001)
-```bash
-cd backend
-npm install
-npm start
-```
-> You should see: `Loaded 274013 valid words into dictionary with prefix indices in ~190ms.`
-
-### 3. Start the Frontend (Port 3000)
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### 4. Play
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
----
-
-## 🌐 Deployment
-
-### Frontend → Vercel
-
-1. Push this repo to GitHub.
-2. Go to [vercel.com](https://vercel.com) → **Add New Project** → Import your repo.
-3. The included `vercel.json` handles build configuration automatically.
-4. Add this **Environment Variable**:
-   | Key | Value |
-   |---|---|
-   | `NEXT_PUBLIC_SOCKET_URL` | Your deployed backend URL (e.g. `https://word-chain-backend.onrender.com`) |
-5. Click **Deploy**.
-
-### Backend → Render (Free Tier)
-
-Since Socket.io requires persistent WebSocket connections, the backend must be hosted on a long-lived Node.js runtime (not serverless).
-
-1. Go to [render.com](https://render.com) → **New +** → **Web Service**.
-2. Connect your GitHub repo.
-3. Configure:
-   | Setting | Value |
-   |---|---|
-   | **Root Directory** | `backend` |
-   | **Environment** | `Node` |
-   | **Build Command** | `npm install` |
-   | **Start Command** | `npm start` |
-4. Click **Create Web Service**.
-5. Copy the service URL and add it as `NEXT_PUBLIC_SOCKET_URL` in your Vercel project.
-
-> **Alternatives**: [Railway](https://railway.app), [Fly.io](https://fly.io), or any VPS that supports Node.js.
-
----
-
 ## ⚙️ Game Configuration
 
 All game constants are in [`backend/src/constants.js`](backend/src/constants.js):
@@ -193,12 +128,6 @@ All game constants are in [`backend/src/constants.js`](backend/src/constants.js)
 | `DIFFICULTY_SWITCH_SECONDS` | `65` | Seconds before harder prefixes appear |
 | `ROOM_CODE_LENGTH` | `6` | Length of generated room codes |
 | `MAX_DISPLAY_NAME_LENGTH` | `10` | Max characters for player names |
-
----
-
-## 📄 License
-
-MIT
 
 ---
 
