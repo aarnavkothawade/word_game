@@ -18,12 +18,22 @@ const engine = require('./engine');
 engine.loadDictionary();
 
 const app = express();
-app.use(cors());
+
+const allowedOrigins = process.env.FRONTEND_URL
+  ? [process.env.FRONTEND_URL, process.env.FRONTEND_URL.replace(/\/$/, '')]
+  : '*';
+
+app.use(cors({ origin: allowedOrigins }));
+
+// Health check for Render
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins,
   }
 });
 
