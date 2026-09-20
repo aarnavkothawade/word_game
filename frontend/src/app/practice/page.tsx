@@ -3,21 +3,31 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSocket } from '@/hooks/useSocket';
 import Keyboard from '@/components/Keyboard';
+import {
+  RoomState,
+  GameOverResult,
+  TurnStartedData,
+  LetterSelectedData,
+  WordAcceptedData,
+  SubmitWordResponse,
+  RequestHintResponse,
+  LastPlayedInfo
+} from '@/types/game';
 
 export default function PracticePage() {
   const router = useRouter();
   const { socket, isConnected, getSessionToken, getDisplayName } = useSocket();
   
-  const [roomState, setRoomState] = useState<any>(null);
+  const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
   const [startingLetters, setStartingLetters] = useState<string[] | null>(null);
-  const [gameOverResult, setGameOverResult] = useState<any>(null);
+  const [gameOverResult, setGameOverResult] = useState<GameOverResult | null>(null);
   const [hintsLeft, setHintsLeft] = useState(3);
   const [roomCode, setRoomCode] = useState<string>('');
-  const [initStarted, setInitStarted] = useState(false);
-  const [lastPlayed, setLastPlayed] = useState<{ word: string; playerId: string; displayName?: string } | null>(null);
+  const [lastPlayed, setLastPlayed] = useState<LastPlayedInfo | null>(null);
+  const initStartedRef = useRef(false);
 
   const isMyTurn = roomState?.status === 'in-progress' && roomState?.currentTurnPlayerId === socket?.id;
   const localPlayer = roomState?.players?.[0];
@@ -25,15 +35,15 @@ export default function PracticePage() {
 
   // Initialize practice session on mount
   useEffect(() => {
-    if (!socket || !isConnected || initStarted) return;
-    setInitStarted(true);
+    if (!socket || !isConnected || initStartedRef.current) return;
+    initStartedRef.current = true;
 
     const name = getDisplayName() || 'Player';
     const token = getSessionToken();
 
-    socket.emit('start-practice', { displayName: name, sessionToken: token }, (res: any) => {
+    socket.emit('start-practice', { displayName: name, sessionToken: token }, (res: { success?: boolean; roomCode?: string; roomState?: RoomState; error?: string }) => {
       if (res?.success && res?.roomState) {
-        setRoomCode(res.roomCode);
+        setRoomCode(res.roomCode || '');
         setRoomState(res.roomState);
         setHintsLeft(res.roomState.hintsLeft ?? 3);
         if (res.roomState.startingLetters) {
@@ -43,13 +53,13 @@ export default function PracticePage() {
         setError(res.error);
       }
     });
-  }, [socket, isConnected, initStarted, getDisplayName, getSessionToken]);
+  }, [socket, isConnected, getDisplayName, getSessionToken]);
 
   // Socket event listeners
   useEffect(() => {
     if (!socket || !isConnected) return;
 
-    const onRoomState = (state: any) => {
+    const onRoomState = (state: RoomState) => {
       setRoomState(state);
       setHintsLeft(state.hintsLeft ?? 3);
       if (state.lastPlayed) {
@@ -66,7 +76,7 @@ export default function PracticePage() {
       }
     };
 
-    const onTurnStarted = (data: any) => {
+    const onTurnStarted = (data: TurnStartedData) => {
       setTimeLeft(data.duration);
       if (data.letters) {
         setStartingLetters(data.letters);
@@ -79,14 +89,14 @@ export default function PracticePage() {
       }
     };
 
-    const onLetterSelected = (data: any) => {
+    const onLetterSelected = (data: LetterSelectedData) => {
       setStartingLetters(null);
       if (roomState?.currentTurnPlayerId === socket.id) {
         setInput(data.letter);
       }
     };
 
-    const onWordAccepted = (data: any) => {
+    const onWordAccepted = (data: WordAcceptedData) => {
       setError('');
       if (data.word) {
         setLastPlayed({
@@ -100,7 +110,7 @@ export default function PracticePage() {
       }
     };
 
-    const onGameOver = (data: any) => {
+    const onGameOver = (data: GameOverResult) => {
       setGameOverResult(data);
     };
 
@@ -139,7 +149,7 @@ export default function PracticePage() {
     if (!isMyTurn || startingLetters) return;
     if (roomState?.currentPrefix && input.length <= roomState.currentPrefix.length) return;
     setInput(prev => prev.slice(0, -1));
-  }, [isMyTurn, startingLetters, roomState?.currentPrefix, input.length]);
+  }, [isMyTurn, startingLetters, roomState, input]);
 
   const handleSubmit = useCallback(() => {
     if (!isMyTurn || startingLetters) return;
@@ -151,10 +161,10 @@ export default function PracticePage() {
       return;
     }
 
-    socket?.emit('submit-word', { roomCode: roomCode || roomState?.code, word: trimmed }, (res: any) => {
+    socket?.emit('submit-word', { roomCode: roomCode || roomState?.code, word: trimmed }, (res: SubmitWordResponse) => {
       if (res?.error) setError(res.error);
     });
-  }, [isMyTurn, startingLetters, input, socket, roomCode, roomState?.code, roomState?.usedWords]);
+  }, [isMyTurn, startingLetters, input, socket, roomCode, roomState]);
 
   // Physical Keyboard Listener
   useEffect(() => {
@@ -191,10 +201,10 @@ export default function PracticePage() {
   const handleHint = () => {
     if (!isMyTurn || hintsLeft <= 0 || startingLetters) return;
     const code = roomCode || roomState?.code;
-    socket?.emit('request-hint', { roomCode: code }, (res: any) => {
+    socket?.emit('request-hint', { roomCode: code }, (res: RequestHintResponse) => {
       if (res?.hint) {
         setInput(res.hint);
-        setHintsLeft(res.hintsLeft);
+        if (typeof res.hintsLeft === 'number') setHintsLeft(res.hintsLeft);
         if (res.isFullWord) {
           setHintMessage('Full word revealed!');
         } else {
@@ -270,7 +280,7 @@ export default function PracticePage() {
                   startingLetters ? (
                     'Select a starting letter'
                   ) : roomState?.currentPrefix ? (
-                    <span>Your Turn — start with <strong className="text-[var(--foreground)] font-mono font-bold uppercase">"{roomState.currentPrefix}"</strong></span>
+                    <span>Your Turn — start with <strong className="text-[var(--foreground)] font-mono font-bold uppercase">&quot;{roomState.currentPrefix}&quot;</strong></span>
                   ) : (
                     'Your Turn'
                   )
@@ -286,7 +296,7 @@ export default function PracticePage() {
                       key={l}
                       onClick={() => handleSelectLetter(l)}
                       disabled={!isMyTurn}
-                      className="w-16 h-16 text-3xl uppercase border-2 border-[var(--border-color)] bg-[var(--card-bg)] text-[var(--foreground)] flex items-center justify-center font-bold rounded hover:bg-[var(--foreground)] hover:text-[var(--background)] transition-all active:scale-95 disabled:opacity-40"
+                      className="w-16 h-16 text-3xl uppercase border-2 border-[var(--border-color)] bg-[var(--card-bg)] text-[var(--foreground)] flex items-center justify-center font-bold rounded hover:bg-[var(--foreground)] hover:text-[var(--background)] transition-all active:scale-95 disabled:opacity-40 cursor-pointer"
                     >
                       {l}
                     </button>
@@ -312,7 +322,7 @@ export default function PracticePage() {
               <div className="flex flex-col items-center gap-2">
                 <button 
                   onClick={handleHint}
-                  className="px-4 py-2 border border-[var(--border-color)] rounded text-[var(--foreground)] bg-[var(--card-bg)] hover:bg-[var(--foreground)] hover:text-[var(--background)] transition-colors text-sm font-medium"
+                  className="px-4 py-2 border border-[var(--border-color)] rounded text-[var(--foreground)] bg-[var(--card-bg)] hover:bg-[var(--foreground)] hover:text-[var(--background)] transition-colors text-sm font-medium cursor-pointer"
                 >
                   Hint ({hintsLeft} left)
                 </button>
@@ -337,13 +347,13 @@ export default function PracticePage() {
             <div className="flex justify-center gap-4 pt-4">
               <button 
                 onClick={handlePlayAgain} 
-                className="px-6 py-3 bg-[var(--foreground)] text-[var(--background)] rounded font-bold hover:opacity-90 transition-opacity"
+                className="px-6 py-3 bg-[var(--foreground)] text-[var(--background)] rounded font-bold hover:opacity-90 transition-opacity cursor-pointer"
               >
                 Play Again
               </button>
               <button 
                 onClick={handleLeave} 
-                className="px-6 py-3 border border-[var(--border-color)] text-[var(--foreground)] rounded font-bold hover:bg-[var(--card-bg)] transition-colors"
+                className="px-6 py-3 border border-[var(--border-color)] text-[var(--foreground)] rounded font-bold hover:bg-[var(--card-bg)] transition-colors cursor-pointer"
               >
                 Back to Home
               </button>
@@ -368,7 +378,7 @@ export default function PracticePage() {
       <div className="p-3 border-t border-[var(--border-color)] flex justify-between items-center text-xs px-4">
         <button 
           onClick={handleLeave} 
-          className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors underline"
+          className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors underline cursor-pointer"
         >
           Quit Practice
         </button>

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const wordListPath = require('word-list');
-const { MIN_WORD_LENGTH, DIFFICULTY_SWITCH_SECONDS } = require('./constants');
+const { MIN_WORD_LENGTH, DIFFICULTY_PHASE_1_END, DIFFICULTY_PHASE_2_END, DIFFICULTY_CYCLE_TOTAL } = require('./constants');
+const extraWords = require('./extra-words');
 
 let dictionary = new Set();
 // Prefix maps for O(1) lookups
@@ -52,7 +53,45 @@ function loadDictionary() {
     }
   }
 
-  console.log(`Loaded ${count} valid words into dictionary with prefix indices in ${Date.now() - startTime}ms.`);
+  // Load extra words (countries, cities, states, names)
+  let extraCount = 0;
+  const allExtraWords = [
+    ...extraWords.countries,
+    ...extraWords.cities,
+    ...extraWords.usStates,
+    ...extraWords.indianStates,
+    ...extraWords.genericNames
+  ];
+
+  for (const raw of allExtraWords) {
+    const lower = raw.toLowerCase().trim();
+    if (lower.length >= MIN_WORD_LENGTH && alphabeticRegex.test(lower) && !dictionary.has(lower)) {
+      dictionary.add(lower);
+      extraCount++;
+
+      const p1 = lower.slice(0, 1);
+      const p2 = lower.slice(0, 2);
+      const p3 = lower.slice(0, 3);
+
+      let list1 = prefixMap.get(p1);
+      if (!list1) { list1 = []; prefixMap.set(p1, list1); }
+      list1.push(lower);
+
+      if (lower.length >= 2) {
+        let list2 = prefixMap.get(p2);
+        if (!list2) { list2 = []; prefixMap.set(p2, list2); }
+        list2.push(lower);
+      }
+
+      if (lower.length >= 3) {
+        let list3 = prefixMap.get(p3);
+        if (!list3) { list3 = []; prefixMap.set(p3, list3); }
+        list3.push(lower);
+      }
+    }
+  }
+
+  console.log(`Loaded ${count} dictionary words + ${extraCount} extra words (countries/cities/states/names) in ${Date.now() - startTime}ms.`);
   return dictionary;
 }
 
@@ -121,20 +160,28 @@ function validateWord(senderId, activePlayerId, rawWord, currentPrefix, usedWord
   return { valid: true, word };
 }
 
-// 5.6 Extracting the next prefix (O(1) with prefixMap)
+// 5.6 Extracting the next prefix — cyclic 3-phase difficulty
+// Phase 1 (0-45s): single letter only
+// Phase 2 (45-95s): single + double letter, random
+// Phase 3 (95-155s): single + double + triple, random
+// Then cycle repeats
 function getNextPrefix(word, elapsedTime, usedWords) {
-  const isHardMode = elapsedTime > DIFFICULTY_SWITCH_SECONDS;
+  const cycleTime = elapsedTime % DIFFICULTY_CYCLE_TOTAL;
   
   let rollLengths = [];
   const r = Math.random();
   
-  if (isHardMode) {
-    if (r < 0.15) rollLengths = [1, 2, 3];
-    else if (r < 0.45) rollLengths = [2, 3, 1];
-    else rollLengths = [3, 2, 1];
+  if (cycleTime < DIFFICULTY_PHASE_1_END) {
+    // Phase 1: single letter only
+    rollLengths = [1];
+  } else if (cycleTime < DIFFICULTY_PHASE_2_END) {
+    // Phase 2: single and double, random
+    if (r < 0.50) rollLengths = [1, 2];
+    else rollLengths = [2, 1];
   } else {
-    if (r < 0.50) rollLengths = [1, 2, 3];
-    else if (r < 0.85) rollLengths = [2, 1, 3];
+    // Phase 3: single, double, and triple — all random
+    if (r < 0.33) rollLengths = [1, 2, 3];
+    else if (r < 0.66) rollLengths = [2, 3, 1];
     else rollLengths = [3, 2, 1];
   }
   

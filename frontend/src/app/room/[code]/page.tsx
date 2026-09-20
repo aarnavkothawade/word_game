@@ -3,6 +3,19 @@ import { useEffect, useState, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSocket } from '@/hooks/useSocket';
 import Keyboard from '@/components/Keyboard';
+import {
+  RoomState,
+  GameOverResult,
+  TurnStartedData,
+  LetterSelectedData,
+  TypingData,
+  WordAcceptedData,
+  PlayAgainStatusData,
+  JoinRoomResponse,
+  SubmitWordResponse,
+  LastPlayedInfo,
+  Player
+} from '@/types/game';
 
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
   const resolvedParams = use(params);
@@ -11,26 +24,30 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const { socket, isConnected, getSessionToken, getDisplayName, saveDisplayName } = useSocket();
   
   const [displayNameInput, setDisplayNameInput] = useState('');
-  const [roomState, setRoomState] = useState<any>(null);
+  const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [input, setInput] = useState('');
   const [liveTyping, setLiveTyping] = useState('');
   const [error, setError] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
   const [startingLetters, setStartingLetters] = useState<string[] | null>(null);
-  const [gameOverResult, setGameOverResult] = useState<any>(null);
+  const [gameOverResult, setGameOverResult] = useState<GameOverResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [lastPlayed, setLastPlayed] = useState<{ word: string; playerId: string; displayName?: string } | null>(null);
+  const [lastPlayed, setLastPlayed] = useState<LastPlayedInfo | null>(null);
+  const [hasClickedPlayAgain, setHasClickedPlayAgain] = useState(false);
+  const [playAgainStatus, setPlayAgainStatus] = useState<PlayAgainStatusData | null>(null);
 
-  const localPlayer = roomState?.players?.find((p: any) => p.id === socket?.id);
+  const localPlayer = roomState?.players?.find((p: Player) => p.id === socket?.id);
   const isMyTurn = roomState?.status === 'in-progress' && roomState?.currentTurnPlayerId === socket?.id;
-  const activePlayer = roomState?.players?.find((p: any) => p.id === roomState?.currentTurnPlayerId);
+  const activePlayer = roomState?.players?.find((p: Player) => p.id === roomState?.currentTurnPlayerId);
   const effectiveGameOver = gameOverResult || roomState?.gameOverResult || (roomState?.status === 'finished' ? { winner: null } : null);
 
   useEffect(() => {
-    setMounted(true);
-    const saved = getDisplayName();
-    if (saved) setDisplayNameInput(saved);
+    queueMicrotask(() => {
+      setMounted(true);
+      const saved = getDisplayName();
+      if (saved) setDisplayNameInput(saved);
+    });
   }, [getDisplayName]);
 
   // Connection & Room Sync
@@ -40,7 +57,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     // Auto-join if displayName is known and no roomState yet
     const name = getDisplayName();
     if (name && !roomState) {
-      socket.emit('join-room', { roomCode, displayName: name, sessionToken: getSessionToken() }, (res: any) => {
+      socket.emit('join-room', { roomCode, displayName: name, sessionToken: getSessionToken() }, (res: JoinRoomResponse) => {
         if (res?.error) setError(res.error);
         else if (res?.roomState) {
           setRoomState(res.roomState);
@@ -49,7 +66,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       });
     }
 
-    const onRoomState = (state: any) => {
+    const onRoomState = (state: RoomState) => {
       setRoomState(state);
       if (state.lastPlayed) {
         setLastPlayed(state.lastPlayed);
@@ -62,10 +79,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       if (state.status === 'in-progress') {
         if (state.turnDuration) setTimeLeft(state.turnDuration);
         setGameOverResult(null);
+        setHasClickedPlayAgain(false);
+        setPlayAgainStatus(null);
       }
     };
 
-    const onTurnStarted = (data: any) => {
+    const onTurnStarted = (data: TurnStartedData) => {
       setTimeLeft(data.duration);
       if (data.letters) {
         setStartingLetters(data.letters);
@@ -78,20 +97,20 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       }
     };
 
-    const onLetterSelected = (data: any) => {
+    const onLetterSelected = (data: LetterSelectedData) => {
       setStartingLetters(null);
       if (roomState?.currentTurnPlayerId === socket.id) {
         setInput(data.letter);
       }
     };
 
-    const onTyping = (data: any) => {
+    const onTyping = (data: TypingData) => {
       if (data.playerId !== socket.id) {
         setLiveTyping(data.input);
       }
     };
 
-    const onWordAccepted = (data: any) => {
+    const onWordAccepted = (data: WordAcceptedData) => {
       setLiveTyping('');
       setInput('');
       setError('');
@@ -104,8 +123,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       }
     };
 
-    const onGameOver = (data: any) => {
+    const onGameOver = (data: GameOverResult) => {
       setGameOverResult(data);
+      setHasClickedPlayAgain(false);
+      setPlayAgainStatus(null);
+    };
+
+    const onPlayAgainStatus = (data: PlayAgainStatusData) => {
+      setPlayAgainStatus(data);
     };
 
     socket.on('room-state', onRoomState);
@@ -114,6 +139,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     socket.on('typing', onTyping);
     socket.on('word-accepted', onWordAccepted);
     socket.on('game-over', onGameOver);
+    socket.on('play-again-status', onPlayAgainStatus);
 
     return () => {
       socket.off('room-state', onRoomState);
@@ -122,6 +148,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       socket.off('typing', onTyping);
       socket.off('word-accepted', onWordAccepted);
       socket.off('game-over', onGameOver);
+      socket.off('play-again-status', onPlayAgainStatus);
     };
   }, [socket, isConnected, mounted, roomCode, roomState, getSessionToken, getDisplayName]);
 
@@ -144,7 +171,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const handleJoinDirect = () => {
     const name = displayNameInput.trim() || 'Player';
     saveDisplayName(name);
-    socket?.emit('join-room', { roomCode, displayName: name, sessionToken: getSessionToken() }, (res: any) => {
+    socket?.emit('join-room', { roomCode, displayName: name, sessionToken: getSessionToken() }, (res: JoinRoomResponse) => {
       if (res?.error) setError(res.error);
       else if (res?.roomState) {
         setRoomState(res.roomState);
@@ -173,7 +200,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     if (!isMyTurn || startingLetters) return;
     if (roomState?.currentPrefix && input.length <= roomState.currentPrefix.length) return;
     setInput(prev => prev.slice(0, -1));
-  }, [isMyTurn, startingLetters, roomState?.currentPrefix, input.length]);
+  }, [isMyTurn, startingLetters, roomState, input]);
 
   const handleSubmit = useCallback(() => {
     if (!isMyTurn || startingLetters) return;
@@ -185,10 +212,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       return;
     }
 
-    socket?.emit('submit-word', { roomCode, word: trimmed }, (res: any) => {
+    socket?.emit('submit-word', { roomCode, word: trimmed }, (res: SubmitWordResponse) => {
       if (res?.error) setError(res.error);
     });
-  }, [isMyTurn, startingLetters, input, socket, roomCode, roomState?.usedWords]);
+  }, [isMyTurn, startingLetters, input, socket, roomCode, roomState]);
 
   // Physical keyboard listener
   useEffect(() => {
@@ -221,6 +248,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const handlePlayAgain = () => {
     socket?.emit('play-again', { roomCode });
+    setHasClickedPlayAgain(true);
   };
 
   const handleCopyLink = () => {
@@ -246,7 +274,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           <h1 className="text-xl font-bold text-red-500">{error}</h1>
           <button 
             onClick={() => router.push('/')} 
-            className="px-5 py-2.5 bg-[var(--foreground)] text-[var(--background)] rounded font-semibold hover:opacity-90"
+            className="px-5 py-2.5 bg-[var(--foreground)] text-[var(--background)] rounded font-semibold hover:opacity-90 cursor-pointer"
           >
             Back to Home
           </button>
@@ -274,7 +302,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           />
           <button 
             onClick={handleJoinDirect} 
-            className="w-full py-2.5 bg-[var(--foreground)] text-[var(--background)] rounded font-semibold hover:opacity-90 transition-opacity"
+            className="w-full py-2.5 bg-[var(--foreground)] text-[var(--background)] rounded font-semibold hover:opacity-90 transition-opacity cursor-pointer"
           >
             Join Game
           </button>
@@ -291,7 +319,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           <span className="font-bold tracking-widest font-mono text-[var(--foreground)]">{roomCode}</span>
           <button 
             onClick={handleCopyLink}
-            className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] underline transition-colors"
+            className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] underline transition-colors cursor-pointer"
           >
             {copied ? 'Copied!' : 'Copy Link'}
           </button>
@@ -315,7 +343,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             </h2>
             
             <div className="max-w-md mx-auto bg-[var(--card-bg)] border border-[var(--border-color)] rounded divide-y divide-[var(--border-color)]">
-              {roomState.players.map((p: any) => (
+              {roomState.players.map((p: Player) => (
                 <div key={p.id} className="px-4 py-3 flex justify-between items-center text-sm font-medium">
                   <span className="text-[var(--foreground)]">
                     {p.displayName} {p.id === socket?.id && '(You)'}
@@ -332,7 +360,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 <button 
                   onClick={handleStartGame}
                   disabled={roomState.players.length < 2}
-                  className="px-8 py-3 bg-[var(--foreground)] text-[var(--background)] rounded font-bold hover:opacity-90 disabled:opacity-40 transition-all"
+                  className="px-8 py-3 bg-[var(--foreground)] text-[var(--background)] rounded font-bold hover:opacity-90 disabled:opacity-40 transition-all cursor-pointer"
                 >
                   Start Game
                 </button>
@@ -371,9 +399,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               <div className="text-lg font-medium text-[var(--muted-foreground)]">
                 {activePlayer ? (
                   <span>
-                    {activePlayer.displayName}'s turn {activePlayer.id === socket?.id && '(You)'}
+                    {activePlayer.displayName}&apos;s turn {activePlayer.id === socket?.id && '(You)'}
                     {roomState?.currentPrefix && !startingLetters && (
-                      <span> — start with <strong className="text-[var(--foreground)] font-mono font-bold uppercase">"{roomState.currentPrefix}"</strong></span>
+                      <span> — start with <strong className="text-[var(--foreground)] font-mono font-bold uppercase">&quot;{roomState.currentPrefix}&quot;</strong></span>
                     )}
                   </span>
                 ) : (
@@ -388,7 +416,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                       key={l}
                       onClick={() => handleSelectLetter(l)}
                       disabled={!isMyTurn}
-                      className="w-16 h-16 text-3xl uppercase border-2 border-[var(--border-color)] bg-[var(--card-bg)] text-[var(--foreground)] flex items-center justify-center font-bold rounded hover:bg-[var(--foreground)] hover:text-[var(--background)] transition-all active:scale-95 disabled:opacity-40"
+                      className="w-16 h-16 text-3xl uppercase border-2 border-[var(--border-color)] bg-[var(--card-bg)] text-[var(--foreground)] flex items-center justify-center font-bold rounded hover:bg-[var(--foreground)] hover:text-[var(--background)] transition-all active:scale-95 disabled:opacity-40 cursor-pointer"
                     >
                       {l}
                     </button>
@@ -423,18 +451,29 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             <h2 className="text-3xl font-bold text-[var(--foreground)]">
               {effectiveGameOver.winner ? `${effectiveGameOver.winner} wins!` : 'Game Over'}
             </h2>
-            <div className="flex justify-center gap-4 pt-4">
-              {localPlayer?.isHost && (
+            <div className="flex flex-col items-center gap-4 pt-4">
+              {!hasClickedPlayAgain ? (
                 <button 
                   onClick={handlePlayAgain} 
-                  className="px-6 py-3 bg-[var(--foreground)] text-[var(--background)] rounded font-bold hover:opacity-90 transition-opacity"
+                  className="px-6 py-3 bg-[var(--foreground)] text-[var(--background)] rounded font-bold hover:opacity-90 transition-opacity cursor-pointer"
                 >
                   Play Again
                 </button>
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <div className="px-6 py-3 bg-[var(--card-bg)] border border-[var(--border-color)] rounded font-bold text-[var(--muted-foreground)]">
+                    ✓ Ready
+                  </div>
+                  {playAgainStatus && (
+                    <p className="text-sm text-[var(--muted-foreground)] animate-pulse">
+                      Waiting for {playAgainStatus.totalCount - playAgainStatus.readyCount} more player{playAgainStatus.totalCount - playAgainStatus.readyCount !== 1 ? 's' : ''}...
+                    </p>
+                  )}
+                </div>
               )}
               <button 
                 onClick={handleLeave} 
-                className="px-6 py-3 border border-[var(--border-color)] text-[var(--foreground)] rounded font-bold hover:bg-[var(--card-bg)] transition-colors"
+                className="px-6 py-3 border border-[var(--border-color)] text-[var(--foreground)] rounded font-bold hover:bg-[var(--card-bg)] transition-colors cursor-pointer"
               >
                 Back to Home
               </button>
@@ -459,7 +498,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       <div className="p-3 border-t border-[var(--border-color)] flex justify-between items-center text-xs px-4">
         <button 
           onClick={handleLeave} 
-          className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors underline"
+          className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors underline cursor-pointer"
         >
           Leave Game
         </button>

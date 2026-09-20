@@ -31,10 +31,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       token = uuidv4();
       localStorage.setItem('sessionToken', token);
     }
-    setSessionToken(token);
-
     const savedName = localStorage.getItem('displayName') || '';
-    setDisplayNameState(savedName);
+
+    queueMicrotask(() => {
+      setSessionToken(token);
+      setDisplayNameState(savedName);
+    });
   }, []);
 
   useEffect(() => {

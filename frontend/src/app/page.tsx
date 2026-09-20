@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSocket } from '@/hooks/useSocket';
+import { JoinRoomResponse } from '@/types/game';
 
 export default function Home() {
   const [displayName, setDisplayName] = useState('');
@@ -12,10 +13,12 @@ export default function Home() {
   const { socket, isConnected, getSessionToken, saveDisplayName, getDisplayName } = useSocket();
 
   useEffect(() => {
-    setMounted(true);
-    const saved = getDisplayName();
-    if (saved) setDisplayName(saved);
-  }, []);
+    queueMicrotask(() => {
+      setMounted(true);
+      const saved = getDisplayName();
+      if (saved) setDisplayName(saved);
+    });
+  }, [getDisplayName]);
 
   const handleCreate = () => {
     const name = displayName.trim() || 'Player';
@@ -28,7 +31,7 @@ export default function Home() {
     socket.emit('join-room', { 
       displayName: name, 
       sessionToken: getSessionToken() 
-    }, (res: any) => {
+    }, (res: JoinRoomResponse) => {
       if (res?.error) setError(res.error);
       else if (res?.roomCode) router.push(`/room/${res.roomCode}`);
     });
@@ -51,7 +54,7 @@ export default function Home() {
       roomCode: roomCode.trim().toUpperCase(), 
       displayName: name, 
       sessionToken: getSessionToken() 
-    }, (res: any) => {
+    }, (res: JoinRoomResponse) => {
       if (res?.error) setError(res.error);
       else if (res?.roomCode) router.push(`/room/${res.roomCode}`);
     });
@@ -102,7 +105,7 @@ export default function Home() {
           <div className="space-y-4 pt-2">
             <button 
               onClick={handleCreate}
-              className="w-full py-2.5 bg-[var(--foreground)] text-[var(--background)] rounded font-semibold hover:opacity-90 transition-opacity"
+              className="w-full py-2.5 bg-[var(--foreground)] text-[var(--background)] rounded font-semibold hover:opacity-90 transition-opacity cursor-pointer"
             >
               Create Multiplayer Game
             </button>
@@ -119,7 +122,7 @@ export default function Home() {
               />
               <button 
                 onClick={handleJoin}
-                className="px-5 py-2 border border-[var(--border-color)] rounded font-semibold text-[var(--foreground)] hover:bg-[var(--card-bg)] transition-colors"
+                className="px-5 py-2 border border-[var(--border-color)] rounded font-semibold text-[var(--foreground)] hover:bg-[var(--card-bg)] transition-colors cursor-pointer"
               >
                 Join
               </button>
@@ -129,7 +132,7 @@ export default function Home() {
           <div className="pt-6 border-t border-[var(--border-color)]">
             <button 
               onClick={handlePractice}
-              className="w-full py-2.5 border border-[var(--border-color)] rounded font-semibold text-[var(--foreground)] hover:bg-[var(--card-bg)] transition-colors"
+              className="w-full py-2.5 border border-[var(--border-color)] rounded font-semibold text-[var(--foreground)] hover:bg-[var(--card-bg)] transition-colors cursor-pointer"
             >
               Practice vs Bot
             </button>

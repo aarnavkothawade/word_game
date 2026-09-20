@@ -282,11 +282,14 @@ io.on('connection', (socket) => {
     room.status = 'in-progress';
     room.gameStartedAt = Date.now();
     room.usedWords.clear();
+    room.gameOverResult = null;
+    room.lastPlayed = null;
     
     // reset all players
     room.players.forEach(p => {
       p.lives = STARTING_LIVES;
       p.isSpectator = false;
+      p.wantsPlayAgain = false;
     });
     
     // Random first player
@@ -499,24 +502,53 @@ io.on('connection', (socket) => {
   socket.on('play-again', (data) => {
      const { roomCode } = data;
      const room = rooms.get(roomCode);
-     if (!room) return;
+     if (!room || room.status !== 'finished') return;
      
      if (room.isPractice) {
        room.status = 'in-progress';
        room.gameStartedAt = Date.now();
        room.usedWords.clear();
        room.lastPlayed = null;
+       room.gameOverResult = null;
        room.hintsLeft = MAX_HINTS_PER_PRACTICE_SESSION;
        room.players[0].lives = STARTING_LIVES;
        const letters = engine.getStartingLetters(room.usedWords);
        startTurn(room, socket.id, letters);
      } else {
+       // Mark this player as wanting to play again
        const player = room.players.find(p => p.id === socket.id);
-       if (player && player.isHost) {
-         room.status = 'lobby';
+       if (!player) return;
+       player.wantsPlayAgain = true;
+       
+       // Emit status so clients can show who has pressed
+       const connectedPlayers = room.players.filter(p => p.isConnected);
+       const readyPlayers = connectedPlayers.filter(p => p.wantsPlayAgain);
+       
+       io.to(room.code).emit('play-again-status', {
+         readyCount: readyPlayers.length,
+         totalCount: connectedPlayers.length,
+         readyNames: readyPlayers.map(p => p.displayName)
+       });
+       
+       // Check if all connected players are ready
+       if (readyPlayers.length >= connectedPlayers.length && connectedPlayers.length >= MIN_PLAYERS_TO_START) {
+         // Auto-start: reset everything and begin immediately
+         room.status = 'in-progress';
+         room.gameStartedAt = Date.now();
          room.usedWords.clear();
          room.lastPlayed = null;
-         emitRoomState(room);
+         room.gameOverResult = null;
+         
+         room.players.forEach(p => {
+           p.lives = STARTING_LIVES;
+           p.isSpectator = !p.isConnected;
+           p.wantsPlayAgain = false;
+         });
+         
+         const activePlayers = room.players.filter(p => !p.isSpectator);
+         const firstPlayer = activePlayers[Math.floor(Math.random() * activePlayers.length)];
+         const letters = engine.getStartingLetters(room.usedWords);
+         startTurn(room, firstPlayer.id, letters);
        }
      }
   });

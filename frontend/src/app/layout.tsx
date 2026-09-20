@@ -13,19 +13,21 @@ export default function RootLayout({
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-    const saved = localStorage.getItem('theme') as 'light' | 'dark';
-    if (saved) {
-      setTheme(saved);
-      if (saved === 'dark') {
+    queueMicrotask(() => {
+      setMounted(true);
+      const saved = localStorage.getItem('theme') as 'light' | 'dark';
+      if (saved) {
+        setTheme(saved);
+        if (saved === 'dark') {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        setTheme('dark');
         document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
       }
-    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setTheme('dark');
-      document.documentElement.classList.add('dark');
-    }
+    });
   }, []);
 
   const toggleTheme = () => {
